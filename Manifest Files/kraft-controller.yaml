@@ -1,0 +1,39 @@
+apiVersion: platform.confluent.io/v1beta1
+kind: KRaftController
+metadata:
+  name: kraft-controller
+  namespace: confluent
+spec:
+  replicas: 1
+  image:
+    application: confluentinc/cp-server:7.6.0
+    init: confluentinc/confluent-init-container:2.8.0
+  dataVolumeCapacity: 10Gi
+  storageClass:
+    name: standard
+  podTemplate:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+    probe:
+      liveness:
+        initialDelaySeconds: 60
+        failureThreshold: 10
+      readiness:
+        initialDelaySeconds: 60
+        failureThreshold: 10
+  configOverrides:
+    server:
+      - default.replication.factor=1
+      - min.insync.replicas=1
+      - confluent.balancer.enable=false
+      - confluent.metadata.replication.factor=1
+  listeners:
+    controller:
+      # Removing 'type: plain' to stop the JAAS error
+      tls:
+        enabled: false
