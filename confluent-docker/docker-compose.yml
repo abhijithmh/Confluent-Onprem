@@ -1,0 +1,243 @@
+# =============================================================
+#  Confluent Platform – Docker Compose (mirrors Kubernetes CFK manifests)
+#  Services: KRaft Broker, Schema Registry, Control Center, Prometheus
+#  Flink is commented out (as in flink.yaml)
+# =============================================================
+
+networks:
+  confluent:
+    driver: bridge
+
+volumes:
+  kafka-data:
+  controlcenter-data:
+  prometheus-data:
+
+services:
+
+  # -----------------------------------------------------------
+  # Kafka (KRaft mode – combined controller + broker in one node)
+  # Mirrors: kraft-controller.yaml + kafka.yaml
+  # -----------------------------------------------------------
+  kafka:
+    image: confluentinc/cp-server:7.6.0
+    container_name: kafka
+    hostname: kafka
+    networks:
+      - confluent
+    ports:
+      - "9092:9092" # Internal / inter-broker
+      - "9101:9101" # JMX
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    environment:
+      # --- KRaft identity ---
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: "broker,controller" # Combined node (mirrors kraft-controller + kafka)
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:29093"
+
+      # --- Listeners ---
+      KAFKA_LISTENERS: "PLAINTEXT://kafka:29092,CONTROLLER://kafka:29093,EXTERNAL://0.0.0.0:9092"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:29092,EXTERNAL://localhost:9092"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT"
+      KAFKA_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+
+      # --- Replication / topic config (mirrors configOverrides) ---
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      KAFKA_MIN_INSYNC_REPLICAS: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_CONFLUENT_BALANCER_ENABLE: "false"
+      KAFKA_CONFLUENT_METADATA_TOPIC_REPLICATION_FACTOR: 1
+
+      # --- Cluster ID (required for KRaft) ---
+      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
+
+      # --- JMX (for Prometheus scraping) ---
+      KAFKA_JMX_PORT: 9101
+      KAFKA_JMX_HOSTNAME: localhost
+
+      # --- Logging ---
+      KAFKA_LOG4J_ROOT_LOGLEVEL: WARN
+
+      # --- Confluent metrics / telemetry ---
+      KAFKA_METRIC_REPORTERS: io.confluent.metrics.reporter.ConfluentMetricsReporter
+      CONFLUENT_METRICS_REPORTER_BOOTSTRAP_SERVERS: kafka:29092
+      CONFLUENT_METRICS_REPORTER_TOPIC_REPLICAS: 1
+      CONFLUENT_METRICS_ENABLE: "true"
+      CONFLUENT_SUPPORT_CUSTOMER_ID: anonymous
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 2G
+        reservations:
+          cpus: "0.2"
+          memory: 1G
+    healthcheck:
+      test: [ "CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092" ]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+    restart: unless-stopped
+
+  # -----------------------------------------------------------
+  # Schema Registry
+  # Mirrors: schemaregistry.yaml
+  # -----------------------------------------------------------
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.6.0
+    container_name: schema-registry
+    hostname: schema-registry
+    networks:
+      - confluent
+    ports:
+      - "8081:8081"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: "kafka:29092"
+      SCHEMA_REGISTRY_LISTENERS: "http://0.0.0.0:8081"
+      SCHEMA_REGISTRY_KAFKASTORE_TOPIC_REPLICATION_FACTOR: 1 # mirrors kafkastore.topic.replication.factor=1
+      SCHEMA_REGISTRY_LOG4J_ROOT_LOGLEVEL: WARN
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+        reservations:
+          cpus: "0.1"
+          memory: 256M
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8081/subjects" ]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 180s
+    restart: unless-stopped
+
+  # -----------------------------------------------------------
+  # Confluent Control Center
+  # Mirrors: controlcenter.yaml
+  # -----------------------------------------------------------
+  control-center:
+    image: confluentinc/cp-enterprise-control-center:7.6.0
+    container_name: control-center
+    hostname: control-center
+    networks:
+      - confluent
+    ports:
+      - "9021:9021"
+    depends_on:
+      kafka:
+        condition: service_healthy
+      schema-registry:
+        condition: service_healthy
+    volumes:
+      - controlcenter-data:/var/lib/confluent-control-center
+    environment:
+      CONTROL_CENTER_BOOTSTRAP_SERVERS: "kafka:29092"
+      CONTROL_CENTER_SCHEMA_REGISTRY_URL: "http://schema-registry:8081"
+
+      # --- Internal topic replication (mirrors configOverrides) ---
+      CONTROL_CENTER_REPLICATION_FACTOR: 1
+      CONTROL_CENTER_INTERNAL_TOPICS_REPLICATION: 1
+      CONTROL_CENTER_COMMAND_TOPIC_REPLICATION: 1
+      CONTROL_CENTER_MONITORING_INTERCEPTOR_TOPIC_REPLICATION: 1
+      CONFLUENT_METRICS_TOPIC_REPLICATION: 1
+      CONTROL_CENTER_INTERNAL_TOPICS_PARTITIONS: 1
+
+      # --- UI config ---
+      CONTROL_CENTER_CONNECT_CLUSTER: ""
+      CONTROL_CENTER_KSQL_KSQLDB1_URL: ""
+      PORT: 9021
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 2G
+        reservations:
+          cpus: "0.2"
+          memory: 1G
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:9021/healthcheck" ]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 180s
+    restart: unless-stopped
+
+  # -----------------------------------------------------------
+  # Prometheus
+  # Mirrors: prometheus.yaml (ConfigMap + Deployment + Service)
+  # -----------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    hostname: prometheus
+    networks:
+      - confluent
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=24h"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+        reservations:
+          cpus: "0.1"
+          memory: 256M
+    healthcheck:
+      test: [ "CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+  # -----------------------------------------------------------
+  # Flink – COMMENTED OUT (mirrors flink.yaml which is fully commented)
+  # Uncomment to enable a local Flink JobManager + TaskManager
+  # -----------------------------------------------------------
+  # flink-jobmanager:
+  #   image: confluentinc/cp-flink:1.19.1-cp1
+  #   container_name: flink-jobmanager
+  #   hostname: flink-jobmanager
+  #   networks:
+  #     - confluent
+  #   ports:
+  #     - "8082:8081"
+  #   command: jobmanager
+  #   environment:
+  #     FLINK_PROPERTIES: |
+  #       jobmanager.rpc.address: flink-jobmanager
+  #       jobmanager.memory.process.size: 512m
+  #       taskmanager.memory.process.size: 512m
+  #       taskmanager.numberOfTaskSlots: 1
+  #   restart: unless-stopped
+  #
+  # flink-taskmanager:
+  #   image: confluentinc/cp-flink:1.19.1-cp1
+  #   container_name: flink-taskmanager
+  #   networks:
+  #     - confluent
+  #   depends_on:
+  #     - flink-jobmanager
+  #   command: taskmanager
+  #   environment:
+  #     FLINK_PROPERTIES: |
+  #       jobmanager.rpc.address: flink-jobmanager
+  #       taskmanager.memory.process.size: 512m
+  #       taskmanager.numberOfTaskSlots: 1
+  #   restart: unless-stopped

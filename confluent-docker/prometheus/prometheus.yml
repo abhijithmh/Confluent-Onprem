@@ -1,0 +1,33 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # Kafka JMX metrics (exposed on port 9101)
+  - job_name: 'confluent-kafka'
+    static_configs:
+      - targets: ['kafka:9101']
+        labels:
+          app: 'kafka'
+          component: 'broker'
+
+  # Schema Registry metrics
+  - job_name: 'schema-registry'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['schema-registry:8081']
+        labels:
+          app: 'schema-registry'
+
+  # Control Center metrics
+  - job_name: 'control-center'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['control-center:9021']
+        labels:
+          app: 'control-center'
+
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']

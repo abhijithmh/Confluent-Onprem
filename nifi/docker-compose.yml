@@ -1,0 +1,140 @@
+# =============================================================
+#  Apache NiFi Stack – Docker Compose
+#  Services: NiFi 2.x (HTTPS, single-user auth) + NiFi Registry
+#
+#  Access:
+#    NiFi UI       → https://localhost:8443/nifi
+#    NiFi Registry → http://localhost:18080/nifi-registry
+#
+#  Credentials (NiFi):
+#    Username: admin
+#    Password: NiFiAdmin@2024  (min 12 chars required by NiFi 2.x)
+# =============================================================
+
+networks:
+  nifi-net:
+    driver: bridge
+  # Confluent Kafka network — enables NiFi processors to reach kafka:29092
+  confluent:
+    external: true
+
+volumes:
+  nifi-conf:
+  nifi-data:
+  nifi-logs:
+  nifi-registry-database:
+  nifi-registry-flow:
+
+services:
+
+  # -----------------------------------------------------------
+  # Apache NiFi 2.x
+  # UI: https://localhost:8443/nifi
+  # -----------------------------------------------------------
+  nifi:
+    image: apache/nifi:2.2.0
+    container_name: nifi
+    hostname: nifi
+    networks:
+      - nifi-net
+      - confluent  # ← reach kafka:29092
+    ports:
+      - "8443:8443"   # HTTPS UI (NiFi 2.x defaults to HTTPS)
+    volumes:
+      - nifi-conf:/opt/nifi/nifi-current/conf
+      - nifi-data:/opt/nifi/nifi-current/data
+      - nifi-logs:/opt/nifi/nifi-current/logs
+    environment:
+      # --- Authentication (single-user, password must be >= 12 chars) ---
+      SINGLE_USER_CREDENTIALS_USERNAME: admin
+      SINGLE_USER_CREDENTIALS_PASSWORD: NiFiAdmin@2024
+
+      # --- HTTPS ---
+      NIFI_WEB_HTTPS_PORT: 8443
+      NIFI_WEB_HTTPS_HOST: 0.0.0.0
+      # Required when accessing NiFi through Docker port mapping (prevents 403)
+      NIFI_WEB_PROXY_HOST: localhost:8443
+
+      # --- NiFi Registry integration ---
+      # Points NiFi to the Registry for flow version control
+      NIFI_REGISTRY_WEB_HTTP_HOST: nifi-registry
+      NIFI_REGISTRY_WEB_HTTP_PORT: 18080
+
+      # --- JVM memory ---
+      NIFI_JVM_HEAP_INIT: 512m
+      NIFI_JVM_HEAP_MAX: 1g
+
+      # --- Cluster (single-node, no ZooKeeper needed) ---
+      NIFI_CLUSTER_IS_NODE: "false"
+
+      # --- Logging ---
+      NIFI_LOG_LEVEL: INFO
+
+      # --- Variable Registry (for externalising Kafka bootstrap etc.) ---
+      # NIFI_VARIABLE_REGISTRY_PROPERTIES: /opt/nifi/nifi-current/conf/variables.properties
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+        reservations:
+          cpus: "0.5"
+          memory: 1G
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "-k", "https://localhost:8443/nifi-api/system-diagnostics" ]
+      interval: 30s
+      timeout: 15s
+      retries: 10
+      start_period: 90s
+    restart: unless-stopped
+
+  # -----------------------------------------------------------
+  # Apache NiFi Registry
+  # Provides flow version control for NiFi pipelines.
+  # UI: http://localhost:18080/nifi-registry
+  # -----------------------------------------------------------
+  nifi-registry:
+    image: apache/nifi-registry:latest
+    container_name: nifi-registry
+    hostname: nifi-registry
+    networks:
+      - nifi-net
+    ports:
+      - "18080:18080"
+    volumes:
+      - nifi-registry-database:/opt/nifi-registry/nifi-registry-current/database
+      - nifi-registry-flow:/opt/nifi-registry/nifi-registry-current/flow_storage
+    environment:
+      LOG_LEVEL: INFO
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+        reservations:
+          cpus: "0.1"
+          memory: 256M
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:18080/nifi-registry/actuator/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+    restart: unless-stopped
+
+# =============================================================
+#  To connect NiFi to Confluent Kafka (docker-compose.yml):
+#
+#  1. Add the external network to both services above:
+#       networks:
+#         - nifi-net
+#         - confluent-onprem_confluent   ← add this
+#
+#  2. Uncomment the external network block at the top.
+#
+#  3. In NiFi processors use bootstrap server:
+#       kafka:29092
+#
+#  Then bring up with:
+#       docker compose up -d
+# =============================================================

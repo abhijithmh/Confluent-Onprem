@@ -1,0 +1,45 @@
+# # CMFRestClass — tells CFK how to reach the CMF REST API
+# apiVersion: platform.confluent.io/v1beta1
+# kind: CMFRestClass
+# metadata:
+#   name: default
+#   namespace: confluent
+# spec:
+#   cmfRest:
+#     endpoint: http://confluent-manager-for-apache-flink.confluent.svc.cluster.local:80
+# ---
+# # FlinkEnvironment — defines the Flink execution environment (namespace + image defaults)
+# apiVersion: platform.confluent.io/v1beta1
+# kind: FlinkEnvironment
+# metadata:
+#   name: flink-env
+#   namespace: confluent
+# spec:
+#   kubernetesNamespace: confluent
+#   cmfRestClassRef:
+#     name: default
+#   flinkApplicationDefaults:
+#     spec:
+#       flinkVersion: v1.19
+#       image: confluentinc/cp-flink:1.19.1-cp1
+# ---
+# # FlinkApplication — sample stateless job to verify the Flink stack is working
+# apiVersion: platform.confluent.io/v1beta1
+# kind: FlinkApplication
+# metadata:
+#   name: flink-sample
+#   namespace: confluent
+# spec:
+#   flinkEnvironment: flink-env
+#   cmfRestClassRef:
+#     name: default
+#   image: confluentinc/cp-flink:1.19.1-cp1
+#   flinkVersion: v1.19
+#   flinkConfiguration:
+#     taskmanager.numberOfTaskSlots: "1"
+#     jobmanager.memory.process.size: 512m
+#     taskmanager.memory.process.size: 512m
+#   job:
+#     jarURI: local:///opt/flink/examples/streaming/StateMachineExample.jar
+#     parallelism: 1
+#     upgradeMode: stateless
