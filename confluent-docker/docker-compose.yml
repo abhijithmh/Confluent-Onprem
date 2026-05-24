@@ -7,6 +7,7 @@
 networks:
   confluent:
     driver: bridge
+    name: confluent  # Pin name so NiFi's external: true always resolves correctly
 
 volumes:
   kafka-data:
@@ -70,6 +71,10 @@ services:
       CONFLUENT_METRICS_REPORTER_TOPIC_REPLICAS: 1
       CONFLUENT_METRICS_ENABLE: "true"
       CONFLUENT_SUPPORT_CUSTOMER_ID: anonymous
+
+      # --- Single-broker: override telemetry topic replication factor ---
+      KAFKA_CONFLUENT_TELEMETRY_ENABLED: "false"
+      CONFLUENT_TELEMETRY_TOPIC_REPLICATION_FACTOR: 1
     deploy:
       resources:
         limits:

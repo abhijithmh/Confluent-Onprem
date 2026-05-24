@@ -120,6 +120,10 @@ resource "docker_container" "kafka" {
     "CONFLUENT_METRICS_ENABLE=true",
     "CONFLUENT_SUPPORT_CUSTOMER_ID=anonymous",
 
+    # Single-broker: override telemetry topic replication factor
+    "KAFKA_CONFLUENT_TELEMETRY_ENABLED=false",
+    "CONFLUENT_TELEMETRY_TOPIC_REPLICATION_FACTOR=1",
+
     "KAFKA_LOG4J_ROOT_LOGLEVEL=WARN",
   ]
 
