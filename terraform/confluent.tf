@@ -46,6 +46,8 @@ resource "docker_image" "prometheus" {
 
 # ── Kafka (KRaft combined broker + controller) ───────────────
 # Mirrors: kraft-controller.yaml + kafka.yaml
+# ── Kafka (KRaft combined broker + controller) ───────────────
+# Mirrors: kraft-controller.yaml + kafka.yaml
 resource "docker_container" "kafka" {
   name     = "kafka"
   image    = docker_image.kafka.image_id
@@ -56,9 +58,15 @@ resource "docker_container" "kafka" {
     name = docker_network.confluent.name
   }
 
+  # --- Corrected Port Mapping ---
   ports {
     internal = 9092
     external = 9092
+    ip       = "127.0.0.1" # Locks binding to local machine only
+  }
+  ports {
+    internal = 29092
+    external = 29092
   }
   ports {
     internal = 9101
@@ -81,8 +89,8 @@ resource "docker_container" "kafka" {
     "KAFKA_PROCESS_ROLES=broker,controller",
     "KAFKA_CONTROLLER_QUORUM_VOTERS=1@kafka:29093",
 
-    # Listeners
-    "KAFKA_LISTENERS=PLAINTEXT://kafka:29092,CONTROLLER://kafka:29093,EXTERNAL://0.0.0.0:9092",
+    # --- Corrected Listener Bindings ---
+    "KAFKA_LISTENERS=PLAINTEXT://0.0.0.0:29092,CONTROLLER://0.0.0.0:29093,EXTERNAL://0.0.0.0:9092",
     "KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka:29092,EXTERNAL://localhost:9092",
     "KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT",
     "KAFKA_INTER_BROKER_LISTENER_NAME=PLAINTEXT",
@@ -100,7 +108,7 @@ resource "docker_container" "kafka" {
 
     # Cluster ID (KRaft requirement)
     "CLUSTER_ID=${var.kafka_cluster_id}",
-
+    "KAFKA_AUTO_CREATE_TOPICS_ENABLE=true",
     # JMX
     "KAFKA_JMX_PORT=9101",
     "KAFKA_JMX_HOSTNAME=localhost",
@@ -116,7 +124,8 @@ resource "docker_container" "kafka" {
   ]
 
   healthcheck {
-    test         = ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+    # --- Updated to target internal port ---
+    test         = ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:29092"]
     interval     = "30s"
     timeout      = "10s"
     retries      = 10
@@ -165,6 +174,8 @@ resource "docker_container" "schema_registry" {
 
 # ── Control Center ───────────────────────────────────────────
 # Mirrors: controlcenter.yaml
+# ── Control Center ───────────────────────────────────────────
+# Mirrors: controlcenter.yaml
 resource "docker_container" "control_center" {
   name     = "control-center"
   image    = docker_image.control_center.image_id
@@ -180,9 +191,11 @@ resource "docker_container" "control_center" {
     name = docker_network.confluent.name
   }
 
+  # --- Updated Port Binding ---
   ports {
     internal = 9021
     external = 9021
+    ip       = "127.0.0.1" # 🚀 Locks down visibility to host machine only
   }
 
   volumes {
@@ -197,7 +210,6 @@ resource "docker_container" "control_center" {
     "CONTROL_CENTER_BOOTSTRAP_SERVERS=kafka:29092",
     "CONTROL_CENTER_SCHEMA_REGISTRY_URL=http://schema-registry:8081",
 
-    # Internal topic replication (mirrors configOverrides)
     "CONTROL_CENTER_REPLICATION_FACTOR=1",
     "CONTROL_CENTER_INTERNAL_TOPICS_REPLICATION=1",
     "CONTROL_CENTER_COMMAND_TOPIC_REPLICATION=1",
@@ -206,6 +218,12 @@ resource "docker_container" "control_center" {
     "CONTROL_CENTER_INTERNAL_TOPICS_PARTITIONS=1",
 
     "PORT=9021",
+
+    # Streams / message viewer fix
+    "CONTROL_CENTER_STREAMS_NUM_STREAM_THREADS=1",
+    "CONTROL_CENTER_STREAMS_CONSUMER_SESSION_TIMEOUT_MS=45000",
+    "CONTROL_CENTER_STREAMS_PRODUCER_RETRIES=3",
+    "CONTROL_CENTER_STREAMS_CACHE_MAX_BYTES_BUFFERING=0",
   ]
 
   healthcheck {

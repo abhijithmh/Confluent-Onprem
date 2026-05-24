@@ -26,7 +26,7 @@ variable "prometheus_image" {
 variable "kafka_cluster_id" {
   description = "KRaft cluster ID (must be stable across recreates)"
   type        = string
-  default     = "MkU3OEVBNTcwNTJENDM2Qk"
+  default     = "MkU3OEVBNTcwNTJENDM2Qg"
 }
 
 variable "kafka_heap_mb" {

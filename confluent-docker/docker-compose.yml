@@ -26,24 +26,25 @@ services:
     networks:
       - confluent
     ports:
-      - "9092:9092" # Internal / inter-broker
-      - "9101:9101" # JMX
+      - "9092:9092"   # Map host 9092 -> container 9092 (EXTERNAL)
+      - "29092:29092" # EXPOSE this so external tools can see the internal plane if needed (Optional but highly recommended)
+      - "9101:9101"   # JMX
     volumes:
       - kafka-data:/var/lib/kafka/data
     environment:
       # --- KRaft identity ---
       KAFKA_NODE_ID: 1
-      KAFKA_PROCESS_ROLES: "broker,controller" # Combined node (mirrors kraft-controller + kafka)
+      KAFKA_PROCESS_ROLES: "broker,controller"
       KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:29093"
 
-      # --- Listeners ---
-      KAFKA_LISTENERS: "PLAINTEXT://kafka:29092,CONTROLLER://kafka:29093,EXTERNAL://0.0.0.0:9092"
+      # --- Listeners (Corrected binding addresses) ---
+      KAFKA_LISTENERS: "PLAINTEXT://0.0.0.0:29092,CONTROLLER://0.0.0.0:29093,EXTERNAL://0.0.0.0:9092"
       KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:29092,EXTERNAL://localhost:9092"
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT"
       KAFKA_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
       KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
 
-      # --- Replication / topic config (mirrors configOverrides) ---
+      # --- Replication / topic config ---
       KAFKA_DEFAULT_REPLICATION_FACTOR: 1
       KAFKA_MIN_INSYNC_REPLICAS: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
@@ -53,10 +54,10 @@ services:
       KAFKA_CONFLUENT_BALANCER_ENABLE: "false"
       KAFKA_CONFLUENT_METADATA_TOPIC_REPLICATION_FACTOR: 1
 
-      # --- Cluster ID (required for KRaft) ---
-      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
+      # --- Cluster ID ---
+      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qg"
 
-      # --- JMX (for Prometheus scraping) ---
+      # --- JMX ---
       KAFKA_JMX_PORT: 9101
       KAFKA_JMX_HOSTNAME: localhost
 
@@ -78,13 +79,13 @@ services:
           cpus: "0.2"
           memory: 1G
     healthcheck:
-      test: [ "CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092" ]
+      # Updated to target the internal listener port cleanly
+      test: [ "CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:29092" ]
       interval: 30s
       timeout: 10s
       retries: 10
       start_period: 60s
     restart: unless-stopped
-
   # -----------------------------------------------------------
   # Schema Registry
   # Mirrors: schemaregistry.yaml
@@ -133,7 +134,7 @@ services:
     networks:
       - confluent
     ports:
-      - "9021:9021"
+      - "127.0.0.1:9021:9021" # 🚀 Forces binding to your local machine only
     depends_on:
       kafka:
         condition: service_healthy
@@ -142,21 +143,23 @@ services:
     volumes:
       - controlcenter-data:/var/lib/confluent-control-center
     environment:
-      CONTROL_CENTER_BOOTSTRAP_SERVERS: "kafka:29092"
+      CONTROL_CENTER_BOOTSTRAP_SERVERS: "kafka:29092" # Uses internal plane
       CONTROL_CENTER_SCHEMA_REGISTRY_URL: "http://schema-registry:8081"
-
-      # --- Internal topic replication (mirrors configOverrides) ---
+      
+      # --- System configurations ---
       CONTROL_CENTER_REPLICATION_FACTOR: 1
       CONTROL_CENTER_INTERNAL_TOPICS_REPLICATION: 1
       CONTROL_CENTER_COMMAND_TOPIC_REPLICATION: 1
       CONTROL_CENTER_MONITORING_INTERCEPTOR_TOPIC_REPLICATION: 1
       CONFLUENT_METRICS_TOPIC_REPLICATION: 1
       CONTROL_CENTER_INTERNAL_TOPICS_PARTITIONS: 1
-
-      # --- UI config ---
-      CONTROL_CENTER_CONNECT_CLUSTER: ""
-      CONTROL_CENTER_KSQL_KSQLDB1_URL: ""
       PORT: 9021
+
+      # --- Streams / message viewer fix ---
+      CONTROL_CENTER_STREAMS_NUM_STREAM_THREADS: 1
+      CONTROL_CENTER_STREAMS_CONSUMER_SESSION_TIMEOUT_MS: 45000
+      CONTROL_CENTER_STREAMS_PRODUCER_RETRIES: 3
+      CONTROL_CENTER_STREAMS_CACHE_MAX_BYTES_BUFFERING: 0
     deploy:
       resources:
         limits:
